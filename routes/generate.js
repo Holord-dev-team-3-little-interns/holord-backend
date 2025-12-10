@@ -1,4 +1,4 @@
-// routes/generate.js - UPDATED: NO QR CODE
+// routes/generate.js - UPDATED: NO QR CODE + FIXED PATHS FOR RENDER
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
@@ -56,6 +56,41 @@ async function force916AspectRatio(imagePath) {
     console.error("❌ Error forcing 9:16:", error);
     return imagePath; // Return original if processing fails
   }
+}
+
+// Helper to get clothing path (works on both local and Render)
+function getClothingPath(filename) {
+  // Try multiple possible locations
+  const possiblePaths = [
+    // 1. Relative to backend root (for Render deployment)
+    path.join(__dirname, "..", "clothing", filename),
+    // 2. Relative to current directory
+    path.join(process.cwd(), "clothing", filename),
+    // 3. Absolute path (fallback)
+    path.join("/", "clothing", filename)
+  ];
+  
+  for (const clothingPath of possiblePaths) {
+    if (fs.existsSync(clothingPath)) {
+      console.log(`✅ Found clothing file at: ${clothingPath}`);
+      return clothingPath;
+    }
+  }
+  
+  // Log all attempted paths for debugging
+  console.error("❌ Clothing file not found in any location:");
+  possiblePaths.forEach(p => console.error(`   ${p}`));
+  
+  // Check what's in the clothing directory
+  const clothingDir = path.join(__dirname, "..", "clothing");
+  if (fs.existsSync(clothingDir)) {
+    const files = fs.readdirSync(clothingDir);
+    console.error(`📁 Files in clothing directory:`, files);
+  } else {
+    console.error(`❌ Clothing directory doesn't exist: ${clothingDir}`);
+  }
+  
+  throw new Error(`Clothing file "${filename}" not found. Please check if file exists in backend/clothing folder.`);
 }
 
 router.post("/", upload.single("photo"), async (req, res) => {
@@ -146,14 +181,10 @@ router.post("/", upload.single("photo"), async (req, res) => {
       throw new Error("Uploaded photo is empty");
     }
 
-    // Validate clothing files exist
+    // Validate clothing files exist USING NEW PATH FUNCTION
     for (const item of clothingItems) {
-      const clothingPath = path.join("Z:", "Holord.com", "1 Projects", "20250925 Singapore Tech Week", "DRAFTS", "holord_vsc", "frontend", "clothing", item.file);
-      if (!fs.existsSync(clothingPath)) {
-        throw new Error(`Clothing file not found: ${item.file} at path: ${clothingPath}`);
-      } else {
-        console.log(`✅ Clothing file exists: ${item.file}`);
-      }
+      const clothingPath = getClothingPath(item.file); // ⬅️ CHANGED HERE
+      console.log(`✅ Clothing file exists: ${item.file} at ${clothingPath}`);
     }
 
     // 1️⃣ Prepare image paths in CORRECT ORDER: outfits first, human last
@@ -164,7 +195,7 @@ router.post("/", upload.single("photo"), async (req, res) => {
     
     // Add OUTFIT images FIRST
     for (const item of clothingItems) {
-      const clothingPath = path.join("Z:", "Holord.com", "1 Projects", "20250925 Singapore Tech Week", "DRAFTS", "holord_vsc", "frontend", "clothing", item.file);
+      const clothingPath = getClothingPath(item.file); // ⬅️ CHANGED HERE
       imagePaths.push({
         path: clothingPath,
         type: 'outfit',
