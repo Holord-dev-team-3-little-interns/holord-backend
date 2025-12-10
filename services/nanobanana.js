@@ -4,7 +4,7 @@ const path = require("path");
 const { GoogleGenAI } = require("@google/genai");
 
 // Gemini API configuration
-const GEMINI_API_KEY = "AIzaSyD_5rA2HsKl_oAjiA6W6owl5mtTYlJKOoA";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // Enhanced prompt builder for multiple outfits with controlled order
 function buildPromptForMultipleOutfits(outfitItems, totalImages) {
@@ -219,30 +219,3 @@ async function callNanoBanana(imagePaths) {
 }
 
 module.exports = { callNanoBanana, buildPromptForMultipleOutfits };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
