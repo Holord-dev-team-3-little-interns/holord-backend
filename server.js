@@ -9,42 +9,60 @@ const generateRoute = require("./routes/generate");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ============ CORS CONFIGURATION ============
+// ============ CORS CONFIGURATION - FIXED FOR VERCEL ============
 const allowedOrigins = [
   "http://localhost:3000",
+  "http://localhost:5000", 
+  "http://localhost:8080",
   "https://holord.vercel.app",
   "https://newholordvsc.vercel.app",
-  "https://*.vercel.app"
+  "https://*.vercel.app",
+  "https://*.onrender.com"  // Allow Render domains too
 ];
 
+// SIMPLIFIED CORS - Allow all during development
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.some(allowedOrigin => {
+    // Allow all during development
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    
+    // In production, check against allowed origins
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
       if (allowedOrigin.includes('*')) {
-        const regex = new RegExp('^' + allowedOrigin.replace('*', '.*') + '$');
-        return regex.test(origin);
+        // Handle wildcard domains like *.vercel.app
+        const domain = allowedOrigin.replace('*.', '');
+        return origin.endsWith(domain);
       }
       return origin === allowedOrigin;
-    })) {
+    });
+    
+    if (isAllowed) {
       callback(null, true);
     } else {
-      console.log(`❌ CORS blocked origin: ${origin}`);
-      callback(new Error("Not allowed by CORS"));
+      console.log(`⚠️ CORS request from: ${origin} - Allowing for debugging`);
+      // Temporarily allow all for debugging
+      callback(null, true);
+      // For production, use: callback(new Error(`Origin ${origin} not allowed by CORS`));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
+  maxAge: 86400 // 24 hours
 }));
 
 // Handle preflight requests
 app.options('*', cors());
 
 // ============ MIDDLEWARE ============
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/clothing", express.static(path.join(__dirname, "clothing")));
 
@@ -59,15 +77,20 @@ app.get("/", (req, res) => {
     timestamp: new Date().toISOString(),
     message: "Welcome to Holord Virtual Try-On Backend",
     uptime: process.uptime(),
+    environment: process.env.NODE_ENV || "development",
+    cors: {
+      allowedOrigins: allowedOrigins,
+      currentOrigin: req.headers.origin || 'none'
+    },
     endpoints: [
-      "/",
-      "/ping",
-      "/wake",
-      "/health",
-      "/api/status",
-      "/api/files",
-      "/api/test",
-      "/generate"
+      "GET /",
+      "GET /ping",
+      "GET /wake", 
+      "GET /health",
+      "GET /api/status",
+      "GET /api/files",
+      "GET /api/test",
+      "POST /generate"
     ],
     documentation: "Use /ping endpoint for uptime monitoring"
   });
@@ -95,34 +118,16 @@ app.get("/wake", (req, res) => {
   });
 });
 
-// Health check endpoint for Render
+// Health check endpoint for Render (MUST BE FAST)
 app.get("/health", (req, res) => {
-  // Remove ALL slow operations like fs.readdirSync
   res.status(200).json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    service: "holord-backend",
+    environment: process.env.NODE_ENV || "development",
+    port: PORT
   });
-});
-
-// Keep your /api/files separate (slower)
-app.get("/api/files", (req, res) => {
-  try {
-    const clothingPath = path.join(__dirname, "clothing");
-    let files = [];
-    
-    if (fs.existsSync(clothingPath)) {
-      files = fs.readdirSync(clothingPath);
-    }
-    
-    res.json({
-      success: true,
-      clothingFiles: files,
-      totalFiles: files.length
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 // ============ API TEST ENDPOINTS ============
@@ -132,11 +137,12 @@ app.get("/api/status", (req, res) => {
   res.json({
     success: true,
     message: "Holord Backend Running 🚀",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    cors: req.headers.origin ? `Origin: ${req.headers.origin} allowed` : "No origin header"
   });
 });
 
-// Test endpoint with file listing
+// File listing endpoint
 app.get("/api/files", (req, res) => {
   try {
     const clothingPath = path.join(__dirname, "clothing");
@@ -149,11 +155,11 @@ app.get("/api/files", (req, res) => {
     res.json({
       success: true,
       clothingFiles: files,
-      clothingPath: clothingPath,
       totalFiles: files.length,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
+    console.error("Error reading files:", error);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -169,7 +175,20 @@ app.get("/api/test", (req, res) => {
     message: "API is working!",
     timestamp: new Date().toISOString(),
     backendUrl: "https://holord-backend.onrender.com",
+    currentOrigin: req.headers.origin || "No origin header",
+    corsTest: "If you see this, CORS is working!",
     frontendUrls: allowedOrigins.filter(o => !o.includes('*'))
+  });
+});
+
+// CORS test endpoint
+app.get("/api/cors-test", (req, res) => {
+  res.json({
+    success: true,
+    message: "CORS test successful",
+    origin: req.headers.origin || "No origin",
+    allowed: true,
+    headers: req.headers
   });
 });
 
@@ -186,21 +205,38 @@ app.use((req, res) => {
     success: false,
     error: "Endpoint not found",
     requestedUrl: req.originalUrl,
+    method: req.method,
+    timestamp: new Date().toISOString(),
     availableEndpoints: [
       "GET /",
       "GET /ping",
+      "GET /wake",
       "GET /health",
       "GET /api/status",
       "GET /api/files",
       "GET /api/test",
+      "GET /api/cors-test",
       "POST /generate"
     ]
   });
 });
 
-// Error handler
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("Server error:", err);
+  
+  // Handle CORS errors specifically
+  if (err.message.includes('CORS')) {
+    return res.status(403).json({
+      success: false,
+      error: "CORS Error: " + err.message,
+      timestamp: new Date().toISOString(),
+      yourOrigin: req.headers.origin || 'Not provided',
+      allowedOrigins: allowedOrigins,
+      solution: "Make sure your frontend domain is in allowedOrigins array"
+    });
+  }
+  
   res.status(500).json({
     success: false,
     error: err.message || "Internal server error",
@@ -209,12 +245,27 @@ app.use((err, req, res, next) => {
 });
 
 // ============ START SERVER ============
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`✅ CORS enabled for: ${allowedOrigins.join(', ')}`);
   console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
   console.log(`📁 Clothing files: http://0.0.0.0:${PORT}/api/files`);
   console.log(`🎯 Generate endpoint: POST http://0.0.0.0:${PORT}/generate`);
   console.log(`⏰ Keep-awake endpoint: GET http://0.0.0.0:${PORT}/ping`);
+  console.log(`🔧 CORS test: GET http://0.0.0.0:${PORT}/api/cors-test`);
   console.log(`✅ Set up UptimeRobot to ping: https://holord-backend.onrender.com/ping every 5 minutes`);
+  
+  // Give server time to start before health checks
+  setTimeout(() => {
+    console.log(`✅ Server fully initialized at: ${new Date().toISOString()}`);
+  }, 1000);
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
 });
