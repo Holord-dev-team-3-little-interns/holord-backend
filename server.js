@@ -97,15 +97,32 @@ app.get("/wake", (req, res) => {
 
 // Health check endpoint for Render
 app.get("/health", (req, res) => {
+  // Remove ALL slow operations like fs.readdirSync
   res.status(200).json({
     status: "healthy",
-    service: "holord-backend",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || "development",
-    port: PORT,
-    nodeVersion: process.version,
-    memory: process.memoryUsage()
+    uptime: process.uptime()
   });
+});
+
+// Keep your /api/files separate (slower)
+app.get("/api/files", (req, res) => {
+  try {
+    const clothingPath = path.join(__dirname, "clothing");
+    let files = [];
+    
+    if (fs.existsSync(clothingPath)) {
+      files = fs.readdirSync(clothingPath);
+    }
+    
+    res.json({
+      success: true,
+      clothingFiles: files,
+      totalFiles: files.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ============ API TEST ENDPOINTS ============
