@@ -5,61 +5,21 @@ const cors = require("cors");
 const path = require("path");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/auth");
+const generateRoute = require("./routes/generate");
 
 connectDB();
-
-
-const generateRoute = require("./routes/generate");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ============ CORS CONFIGURATION - FIXED FOR VERCEL ============
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:5000", 
-  "http://localhost:8080",
-  "https://holord.vercel.app",
-  "https://newholordvsc.vercel.app",
-  "https://*.vercel.app",
-  "https://*.onrender.com"  // Allow Render domains too
-];
-
-// SIMPLIFIED CORS - Allow all during development
+// ============ CORS CONFIGURATION - SIMPLIFIED FOR DEBUGGING ============
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, postman)
-    if (!origin) return callback(null, true);
-    
-    // Allow all during development
-    if (process.env.NODE_ENV !== 'production') {
-      return callback(null, true);
-    }
-    
-    // In production, check against allowed origins
-    const isAllowed = allowedOrigins.some(allowedOrigin => {
-      if (allowedOrigin.includes('*')) {
-        // Handle wildcard domains like *.vercel.app
-        const domain = allowedOrigin.replace('*.', '');
-        return origin.endsWith(domain);
-      }
-      return origin === allowedOrigin;
-    });
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.log(`⚠️ CORS request from: ${origin} - Allowing for debugging`);
-      // Temporarily allow all for debugging
-      callback(null, true);
-      // For production, use: callback(new Error(`Origin ${origin} not allowed by CORS`));
-    }
-  },
+  origin: '*', // Allow all origins temporarily for debugging
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
   exposedHeaders: ['Content-Length', 'Content-Type'],
-  maxAge: 86400 // 24 hours
+  maxAge: 86400
 }));
 
 // Handle preflight requests
@@ -70,6 +30,20 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/clothing", express.static(path.join(__dirname, "clothing")));
+
+// ============ REQUEST LOGGING MIDDLEWARE ============
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+  if (req.method === 'POST' && req.originalUrl.includes('/auth')) {
+    console.log('Body:', { ...req.body, password: req.body.password ? '***' : 'missing' });
+  }
+  next();
+});
+
+// ============ MAIN APPLICATION ROUTES ============
+// THESE MUST COME BEFORE ALL TEST ENDPOINTS
+app.use("/api/auth", authRoutes);
+app.use("/generate", generateRoute);
 
 // ============ ESSENTIAL KEEP-AWAKE ENDPOINTS ============
 
@@ -83,11 +57,10 @@ app.get("/", (req, res) => {
     message: "Welcome to Holord Virtual Try-On Backend",
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || "development",
-    cors: {
-      allowedOrigins: allowedOrigins,
-      currentOrigin: req.headers.origin || 'none'
-    },
-    endpoints: [
+    availableEndpoints: [
+      "POST /api/auth/signup",
+      "POST /api/auth/login",
+      "POST /generate",
       "GET /",
       "GET /ping",
       "GET /wake", 
@@ -95,7 +68,7 @@ app.get("/", (req, res) => {
       "GET /api/status",
       "GET /api/files",
       "GET /api/test",
-      "POST /generate"
+      "GET /api/cors-test"
     ],
     documentation: "Use /ping endpoint for uptime monitoring"
   });
@@ -131,7 +104,9 @@ app.get("/health", (req, res) => {
     uptime: process.uptime(),
     service: "holord-backend",
     environment: process.env.NODE_ENV || "development",
-    port: PORT
+    port: PORT,
+    authRoutes: true,
+    generateRoute: true
   });
 });
 
@@ -143,6 +118,10 @@ app.get("/api/status", (req, res) => {
     success: true,
     message: "Holord Backend Running 🚀",
     timestamp: new Date().toISOString(),
+    auth: {
+      signup: "POST /api/auth/signup",
+      login: "POST /api/auth/login"
+    },
     cors: req.headers.origin ? `Origin: ${req.headers.origin} allowed` : "No origin header"
   });
 });
@@ -182,7 +161,23 @@ app.get("/api/test", (req, res) => {
     backendUrl: "https://holord-backend.onrender.com",
     currentOrigin: req.headers.origin || "No origin header",
     corsTest: "If you see this, CORS is working!",
-    frontendUrls: allowedOrigins.filter(o => !o.includes('*'))
+    authEndpoints: [
+      "POST /api/auth/signup",
+      "POST /api/auth/login"
+    ]
+  });
+});
+
+// Auth test endpoint - to verify auth routes are working
+app.get("/api/auth/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "Auth routes are working!",
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      signup: "POST /api/auth/signup",
+      login: "POST /api/auth/login"
+    }
   });
 });
 
@@ -193,16 +188,10 @@ app.get("/api/cors-test", (req, res) => {
     message: "CORS test successful",
     origin: req.headers.origin || "No origin",
     allowed: true,
-    headers: req.headers
+    headers: req.headers,
+    timestamp: new Date().toISOString()
   });
 });
-
-// ============ MAIN APPLICATION ROUTES ============
-
-// Use generate route
-app.use("/api/auth", authRoutes);
-
-app.use("/generate", generateRoute);
 
 // ============ ERROR HANDLING ============
 
@@ -215,6 +204,10 @@ app.use((req, res) => {
     method: req.method,
     timestamp: new Date().toISOString(),
     availableEndpoints: [
+      "POST /api/auth/signup",
+      "POST /api/auth/login",
+      "GET /api/auth/test",
+      "POST /generate",
       "GET /",
       "GET /ping",
       "GET /wake",
@@ -222,8 +215,7 @@ app.use((req, res) => {
       "GET /api/status",
       "GET /api/files",
       "GET /api/test",
-      "GET /api/cors-test",
-      "POST /generate"
+      "GET /api/cors-test"
     ]
   });
 });
@@ -239,7 +231,6 @@ app.use((err, req, res, next) => {
       error: "CORS Error: " + err.message,
       timestamp: new Date().toISOString(),
       yourOrigin: req.headers.origin || 'Not provided',
-      allowedOrigins: allowedOrigins,
       solution: "Make sure your frontend domain is in allowedOrigins array"
     });
   }
@@ -255,17 +246,22 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`✅ CORS enabled for: ${allowedOrigins.join(', ')}`);
-  console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
-  console.log(`📁 Clothing files: http://0.0.0.0:${PORT}/api/files`);
+  console.log(`✅ CORS enabled for ALL origins (temporary for debugging)`);
+  console.log(`🔐 Auth endpoints:`);
+  console.log(`   POST http://0.0.0.0:${PORT}/api/auth/signup`);
+  console.log(`   POST http://0.0.0.0:${PORT}/api/auth/login`);
+  console.log(`   GET  http://0.0.0.0:${PORT}/api/auth/test`);
   console.log(`🎯 Generate endpoint: POST http://0.0.0.0:${PORT}/generate`);
+  console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
   console.log(`⏰ Keep-awake endpoint: GET http://0.0.0.0:${PORT}/ping`);
-  console.log(`🔧 CORS test: GET http://0.0.0.0:${PORT}/api/cors-test`);
   console.log(`✅ Set up UptimeRobot to ping: https://holord-backend.onrender.com/ping every 5 minutes`);
   
-  // Give server time to start before health checks
+  // Test that auth routes are loaded
+  console.log(`\n✅ Auth routes loaded:`, authRoutes ? 'Yes' : 'No');
+  console.log(`✅ Generate route loaded:`, generateRoute ? 'Yes' : 'No');
+  
   setTimeout(() => {
-    console.log(`✅ Server fully initialized at: ${new Date().toISOString()}`);
+    console.log(`\n✅ Server fully initialized at: ${new Date().toISOString()}`);
   }, 1000);
 });
 
