@@ -3,6 +3,11 @@ const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const connectDB = require("./config/db");
+const authRoutes = require("./routes/auth");
+
+connectDB();
+
 
 const generateRoute = require("./routes/generate");
 
@@ -195,6 +200,8 @@ app.get("/api/cors-test", (req, res) => {
 // ============ MAIN APPLICATION ROUTES ============
 
 // Use generate route
+app.use("/api/auth", authRoutes);
+
 app.use("/generate", generateRoute);
 
 // ============ ERROR HANDLING ============
