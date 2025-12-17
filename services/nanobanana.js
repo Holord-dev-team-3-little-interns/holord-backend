@@ -219,30 +219,3 @@ async function callNanoBanana(imagePaths) {
 }
 
 module.exports = { callNanoBanana, buildPromptForMultipleOutfits };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
