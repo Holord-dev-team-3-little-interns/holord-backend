@@ -25,7 +25,7 @@ const clientAccounts = {
     // Demo Account (for testing)
     "demo@holord.com": {
         password: "Demo2024!",
-        expires: "2024-12-31",
+        expires: "2026-12-31",
         name: "Demo User",
         plan: "demo"
     }
